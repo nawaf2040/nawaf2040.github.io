@@ -160,6 +160,17 @@ header{flex-shrink:0;background:rgba(255,255,255,.96);border-bottom:2px solid va
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(120,90,30,.25);border-radius:3px}</style>
 </head>
 <body>
+<div id="debugLogPanel" style="display:none;position:fixed;bottom:0;left:0;right:0;max-height:45vh;overflow-y:auto;background:rgba(10,10,15,0.97);color:#0f0;font-family:monospace;font-size:11px;z-index:99999;padding:8px;direction:ltr;text-align:left;border-top:2px solid #0f0;box-shadow:0 -2px 10px rgba(0,0,0,0.5);">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+    <b style="color:#0f0;">&#128269; Payment Debug Log</b>
+    <div>
+      <button onclick="document.getElementById('debugLogContent').innerHTML='';" style="background:#333;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:10px;margin-left:6px;">Clear</button>
+      <button onclick="document.getElementById('debugLogPanel').style.display='none';" style="background:#a33;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:10px;">Close</button>
+    </div>
+  </div>
+  <div id="debugLogContent"></div>
+</div>
+<button id="debugLogToggleBtn" onclick="document.getElementById('debugLogPanel').style.display='block';" style="position:fixed;bottom:10px;left:10px;z-index:99998;background:#111;color:#0f0;border:1px solid #0f0;border-radius:20px;padding:6px 12px;font-size:11px;font-family:monospace;opacity:0.85;">&#128269; Log</button>
 <div id="app">
 <div class="disc-modal" id="discModal">
  <div class="disc-card">
@@ -329,6 +340,25 @@ function alert(msg){
 
 // ══ CONSTANTS ══
 var ADMIN_CODE='NAWAF2025PI';
+
+// ══ VISIBLE DEBUG LOGGER — shows steps in an on-screen panel instead of alert() ══
+function dlog(msg){
+  try{
+    var panel=document.getElementById('debugLogPanel');
+    var content=document.getElementById('debugLogContent');
+    if(panel)panel.style.display='block';
+    if(content){
+      var time=new Date().toLocaleTimeString('en-GB');
+      var line=document.createElement('div');
+      line.style.borderBottom='1px solid #144';
+      line.style.padding='3px 0';
+      line.textContent='['+time+'] '+msg;
+      content.appendChild(line);
+      content.scrollTop=content.scrollHeight;
+    }
+    console.log('[PI-DEBUG] '+msg);
+  }catch(e){}
+}
 var SUB_KEY='botsub_v4';
 
 // ══ PLANS: monthly / semi-annual / annual ══
@@ -414,46 +444,56 @@ var _piUser=null;
 // Init Pi SDK if available (Pi Browser)
 var _piInitDone=false;
 function initPiSDK(){
-  if(typeof Pi==='undefined')return;
+  if(typeof Pi==='undefined'){dlog('ℹ️ initPiSDK: Pi SDK غير محمّل بعد (قد لا نكون داخل Pi Browser).');return;}
   if(_piInitDone)return;
   _piInitDone=true;
   try{
+    dlog('⏳ تنفيذ Pi.init (sandbox:false)...');
     Pi.init({version:'2.0',sandbox:false});
-    Pi.authenticate(['payments','username'],function onIncompletePaymentFound(payment){})
+    dlog('✅ Pi.init تم بنجاح.');
+    Pi.authenticate(['payments','username'],function onIncompletePaymentFound(payment){
+      dlog('ℹ️ initPiSDK: دفعة سابقة غير مكتملة موجودة عند التحميل.');
+    })
       .then(function(auth){
         if(auth&&auth.user)_piUser=auth.user.username;
+        dlog('✅ مصادقة تلقائية عند التحميل نجحت. المستخدم: '+(auth&&auth.user?auth.user.username:'?'));
       })
-      .catch(function(error){});
+      .catch(function(error){
+        dlog('⚠️ مصادقة تلقائية عند التحميل فشلت: '+(error&&error.message?error.message:JSON.stringify(error)));
+      });
   }catch(e){}
 }
 
 function createPiPayment(planKey){
   var p=PLANS[planKey];if(!p)return;
+  dlog('🟢 زر الدفع اتضغط. الباقة: '+planKey+' | المبلغ: '+(p?p.pi:'?')+' Pi');
   if(typeof Pi==='undefined'){
-    alert('DEBUG: \u0643\u0627\u0626\u0646 Pi \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F (SDK \u0644\u0645 \u064A\u062D\u0645\u0651\u0644). \u062A\u0623\u0643\u062F \u0623\u0646\u0643 \u062A\u0641\u062A\u062D \u0645\u0646 Pi Browser \u0648\u0623\u0639\u062F \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0635\u0641\u062D\u0629.');
+    dlog('❌ Pi SDK غير موجود (لم يُحمّل). تأكد أنك تفتح من Pi Browser.');
     showManualPayModal(planKey);return;
   }
+  dlog('✅ Pi SDK محمّل بنجاح.');
   if(!Pi.createPayment){
-    alert('DEBUG: Pi \u0645\u0648\u062C\u0648\u062F \u0644\u0643\u0646 createPayment \u063A\u064A\u0631 \u0645\u062A\u0627\u062D. \u0642\u062F \u062A\u0643\u0648\u0646 \u0646\u0633\u062E\u0629 SDK \u0642\u062F\u064A\u0645\u0629 \u0623\u0648 \u0645\u0634\u0643\u0644\u0629 \u062A\u062D\u0645\u064A\u0644.');
+    dlog('❌ Pi موجود لكن createPayment غير متاح. قد تكون نسخة SDK قديمة.');
     showManualPayModal(planKey);return;
   }
-  alert('DEBUG: \u0628\u062F\u0623 \u0637\u0644\u0628 \u0635\u0644\u0627\u062D\u064A\u0629 \u0627\u0644\u062F\u0641\u0639...');
+  dlog('⏳ بدء طلب المصادقة Pi.authenticate...');
   // Pi.authenticate() returns a PROMISE (per official Pi SDK docs) — it does NOT
   // take success/error callbacks as 2nd/3rd arguments. The 2nd argument is
   // onIncompletePaymentFound, called only if a prior unfinished payment exists.
   try{
     Pi.authenticate(['payments','username'], function onIncompletePaymentFound(payment){
-      alert('DEBUG: \u0648\u062C\u062F \u062F\u0641\u0639\u0629 \u0633\u0627\u0628\u0642\u0629 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644\u0629.');
+      dlog('⚠️ وجدت دفعة سابقة غير مكتملة: '+JSON.stringify(payment&&payment.identifier));
     }).then(function(auth){
-      alert('DEBUG: \u0646\u062C\u062D\u062A \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629! \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645: '+(auth&&auth.user?auth.user.username:'?'));
+      dlog('✅ نجحت المصادقة! المستخدم: '+(auth&&auth.user?auth.user.username:'?'));
       if(auth&&auth.user)_piUser=auth.user.username;
+      dlog('⏳ استدعاء doCreatePiPayment...');
       doCreatePiPayment(planKey,p);
     }).catch(function(error){
-      alert('DEBUG authenticate .catch: '+(error&&error.message?error.message:JSON.stringify(error)));
+      dlog('❌ فشلت المصادقة (authenticate.catch): '+(error&&error.message?error.message:JSON.stringify(error)));
       showManualPayModal(planKey);
     });
   }catch(er){
-    alert('DEBUG authenticate throw: '+(er&&er.message?er.message:String(er)));
+    dlog('❌ خطأ استثنائي بالمصادقة (throw): '+(er&&er.message?er.message:String(er)));
     showManualPayModal(planKey);
   }
 }
@@ -464,46 +504,62 @@ var PI_BACKEND_URL = 'https://snazzy-sprinkles-4aef79.netlify.app/.netlify/funct
 
 function doCreatePiPayment(planKey,p){
   try{
+    dlog('⏳ استدعاء Pi.createPayment (المبلغ: '+p.pi+' Pi)...');
     Pi.createPayment({
       amount:p.pi,
       memo:'BOT_'+planKey.toUpperCase()+'_'+p.days+'D',
       metadata:{plan:planKey,days:p.days}
     },{
       onReadyForServerApproval:function(pid){
+        dlog('✅ onReadyForServerApproval استُدعيت. paymentId: '+pid);
+        dlog('⏳ إرسال طلب الموافقة إلى: '+PI_BACKEND_URL+'/approve');
         fetch(PI_BACKEND_URL+'/approve',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({paymentId:pid})
-        }).then(function(r){return r.json();}).then(function(d){
-          if(d&&d.error)alert('DEBUG \u0641\u0634\u0644 approve: '+JSON.stringify(d.error));
+        }).then(function(r){
+          dlog('📡 استلمنا رد من approve. HTTP status: '+r.status);
+          return r.json();
+        }).then(function(d){
+          if(d&&d.error){
+            dlog('❌ فشل approve (رد بخطأ): '+JSON.stringify(d.error));
+          }else{
+            dlog('✅ approve نجحت! الرد: '+JSON.stringify(d).slice(0,200));
+          }
         }).catch(function(e){
-          alert('DEBUG \u062E\u0637\u0623 \u0627\u062A\u0635\u0627\u0644 approve: '+e.message);
+          dlog('❌ خطأ اتصال بـ approve (fetch فشل بالكامل): '+e.message);
         });
       },
       onReadyForServerCompletion:function(pid,txid){
+        dlog('✅ onReadyForServerCompletion استُدعيت. paymentId: '+pid+' | txid: '+txid);
+        dlog('⏳ إرسال طلب الإتمام إلى: '+PI_BACKEND_URL+'/complete');
         fetch(PI_BACKEND_URL+'/complete',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({paymentId:pid,txid:txid})
-        }).then(function(r){return r.json();}).then(function(d){
+        }).then(function(r){
+          dlog('📡 استلمنا رد من complete. HTTP status: '+r.status);
+          return r.json();
+        }).then(function(d){
+          dlog('✅ complete نجحت! الرد: '+JSON.stringify(d).slice(0,200));
           activatePlan(planKey,_piUser||'pi_user',p.days);
           updateBadge();
           closePayModal();
           showSuccessMsg(p);
           renderSub();
         }).catch(function(e){
-          alert('DEBUG \u062E\u0637\u0623 \u0627\u062A\u0635\u0627\u0644 complete: '+e.message);
+          dlog('❌ خطأ اتصال بـ complete (fetch فشل بالكامل): '+e.message);
         });
       },
       onCancel:function(pid){
-        alert('DEBUG: \u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u0627\u0644\u062F\u0641\u0639\u0629 \u0645\u0646 \u0637\u0631\u0641\u0643 \u0623\u0648 \u0645\u0646 Pi.');
+        dlog('🚫 تم إلغاء الدفعة من طرفك أو من Pi. paymentId: '+pid);
       },
       onError:function(e,payment){
-        alert('DEBUG onError: '+(e&&e.message?e.message:JSON.stringify(e)));
+        dlog('❌ onError من Pi SDK: '+(e&&e.message?e.message:JSON.stringify(e)));
       }
     });
   }catch(er){
-    alert('DEBUG catch: '+(er&&er.message?er.message:String(er)));
+    dlog('❌ خطأ استثنائي عند استدعاء createPayment (throw): '+(er&&er.message?er.message:String(er)));
     showManualPayModal(planKey);
   }
 }
