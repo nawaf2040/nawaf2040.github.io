@@ -160,17 +160,6 @@ header{flex-shrink:0;background:rgba(255,255,255,.96);border-bottom:2px solid va
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(120,90,30,.25);border-radius:3px}</style>
 </head>
 <body>
-<div id="debugLogPanel" style="display:none;position:fixed;bottom:0;left:0;right:0;max-height:45vh;overflow-y:auto;background:rgba(10,10,15,0.97);color:#0f0;font-family:monospace;font-size:11px;z-index:99999;padding:8px;direction:ltr;text-align:left;border-top:2px solid #0f0;box-shadow:0 -2px 10px rgba(0,0,0,0.5);">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-    <b style="color:#0f0;">&#128269; Payment Debug Log</b>
-    <div>
-      <button onclick="document.getElementById('debugLogContent').innerHTML='';" style="background:#333;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:10px;margin-left:6px;">Clear</button>
-      <button onclick="document.getElementById('debugLogPanel').style.display='none';" style="background:#a33;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:10px;">Close</button>
-    </div>
-  </div>
-  <div id="debugLogContent"></div>
-</div>
-<button id="debugLogToggleBtn" onclick="document.getElementById('debugLogPanel').style.display='block';" style="position:fixed;bottom:10px;left:10px;z-index:99998;background:#111;color:#0f0;border:1px solid #0f0;border-radius:20px;padding:6px 12px;font-size:11px;font-family:monospace;opacity:0.85;">&#128269; Log</button>
 <div id="app">
 <div class="disc-modal" id="discModal">
  <div class="disc-card">
@@ -341,23 +330,9 @@ function alert(msg){
 // ══ CONSTANTS ══
 var ADMIN_CODE='NAWAF2025PI';
 
-// ══ VISIBLE DEBUG LOGGER — shows steps in an on-screen panel instead of alert() ══
+// ══ CONSOLE-ONLY DEBUG LOGGER (no visible UI) ══
 function dlog(msg){
-  try{
-    var panel=document.getElementById('debugLogPanel');
-    var content=document.getElementById('debugLogContent');
-    if(panel)panel.style.display='block';
-    if(content){
-      var time=new Date().toLocaleTimeString('en-GB');
-      var line=document.createElement('div');
-      line.style.borderBottom='1px solid #144';
-      line.style.padding='3px 0';
-      line.textContent='['+time+'] '+msg;
-      content.appendChild(line);
-      content.scrollTop=content.scrollHeight;
-    }
-    console.log('[PI-DEBUG] '+msg);
-  }catch(e){}
+  try{ console.log('[PI-DEBUG] '+msg); }catch(e){}
 }
 var SUB_KEY='botsub_v4';
 
@@ -443,6 +418,7 @@ var _piUser=null;
 
 // Init Pi SDK if available (Pi Browser)
 var _piInitDone=false;
+var _piReady=false;
 function initPiSDK(){
   if(typeof Pi==='undefined'){dlog('ℹ️ initPiSDK: Pi SDK غير محمّل بعد (قد لا نكون داخل Pi Browser).');return;}
   if(_piInitDone)return;
@@ -450,17 +426,20 @@ function initPiSDK(){
   try{
     dlog('⏳ تنفيذ Pi.init (sandbox:false)...');
     Pi.init({version:'2.0',sandbox:false});
-    dlog('✅ Pi.init تم بنجاح.');
-    Pi.authenticate(['payments','username'],function onIncompletePaymentFound(payment){
-      dlog('ℹ️ initPiSDK: دفعة سابقة غير مكتملة موجودة عند التحميل.');
-    })
-      .then(function(auth){
-        if(auth&&auth.user)_piUser=auth.user.username;
-        dlog('✅ مصادقة تلقائية عند التحميل نجحت. المستخدم: '+(auth&&auth.user?auth.user.username:'?'));
+    dlog('✅ Pi.init تم بنجاح. الانتظار 500ms قبل المصادقة (تفادي race condition)...');
+    setTimeout(function(){
+      _piReady=true;
+      Pi.authenticate(['payments','username'],function onIncompletePaymentFound(payment){
+        dlog('ℹ️ initPiSDK: دفعة سابقة غير مكتملة موجودة عند التحميل.');
       })
-      .catch(function(error){
-        dlog('⚠️ مصادقة تلقائية عند التحميل فشلت: '+(error&&error.message?error.message:JSON.stringify(error)));
-      });
+        .then(function(auth){
+          if(auth&&auth.user)_piUser=auth.user.username;
+          dlog('✅ مصادقة تلقائية عند التحميل نجحت. المستخدم: '+(auth&&auth.user?auth.user.username:'?'));
+        })
+        .catch(function(error){
+          dlog('⚠️ مصادقة تلقائية عند التحميل فشلت: '+(error&&error.message?error.message:JSON.stringify(error)));
+        });
+    },500);
   }catch(e){}
 }
 
@@ -476,6 +455,15 @@ function createPiPayment(planKey){
     dlog('❌ Pi موجود لكن createPayment غير متاح. قد تكون نسخة SDK قديمة.');
     showManualPayModal(planKey);return;
   }
+  if(!_piReady){
+    dlog('⏳ SDK لم يجهّز بعد، الانتظار 400ms إضافية قبل المتابعة...');
+    setTimeout(function(){_piReady=true;startPiAuth(planKey,p);},400);
+    return;
+  }
+  startPiAuth(planKey,p);
+}
+
+function startPiAuth(planKey,p){
   dlog('⏳ بدء طلب المصادقة Pi.authenticate...');
   // Pi.authenticate() returns a PROMISE (per official Pi SDK docs) — it does NOT
   // take success/error callbacks as 2nd/3rd arguments. The 2nd argument is
